@@ -15,12 +15,13 @@ import java.io.ByteArrayOutputStream
 class FrameAnalyzer {
     // Orange color range in RGB (allowing for shades and variations)
     // Typical orange: RGB(255, 165, 0) to RGB(255, 140, 0)
-    private val orangeMinR = 200
-    private val orangeMaxR = 255
-    private val orangeMinG = 100
-    private val orangeMaxG = 200
-    private val orangeMinB = 0
-    private val orangeMaxB = 80
+    // These can be calibrated using the calibration feature
+    private var orangeMinR = 200
+    private var orangeMaxR = 255
+    private var orangeMinG = 100
+    private var orangeMaxG = 200
+    private var orangeMinB = 0
+    private var orangeMaxB = 80
     
     // Minimum number of consecutive orange pixels to consider as detection
     private val minOrangePixelCount = 10
@@ -38,7 +39,7 @@ class FrameAnalyzer {
         }
         
         try {
-            val bitmap = imageProxyToBitmap(image)
+            val bitmap = imageProxyToBitmapInternal(image)
             val width = bitmap.width
             val height = bitmap.height
             val middleRow = height / 2
@@ -70,6 +71,18 @@ class FrameAnalyzer {
     }
     
     /**
+     * Updates the color range based on calibration data.
+     */
+    fun updateColorRange(minR: Int, maxR: Int, minG: Int, maxG: Int, minB: Int, maxB: Int) {
+        orangeMinR = minR
+        orangeMaxR = maxR
+        orangeMinG = minG
+        orangeMaxG = maxG
+        orangeMinB = minB
+        orangeMaxB = maxB
+    }
+    
+    /**
      * Checks if a pixel color matches orange (with tolerance for shades).
      */
     private fun isOrangePixel(r: Int, g: Int, b: Int): Boolean {
@@ -83,9 +96,17 @@ class FrameAnalyzer {
     
     /**
      * Converts ImageProxy to Bitmap for pixel access.
+     * Made public for calibration purposes.
+     */
+    fun imageProxyToBitmap(image: ImageProxy): Bitmap {
+        return imageProxyToBitmapInternal(image)
+    }
+    
+    /**
+     * Converts ImageProxy to Bitmap for pixel access.
      * Handles YUV_420_888 format conversion to RGB.
      */
-    private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
+    private fun imageProxyToBitmapInternal(image: ImageProxy): Bitmap {
         val yBuffer = image.planes[0].buffer
         val uBuffer = image.planes[1].buffer
         val vBuffer = image.planes[2].buffer
