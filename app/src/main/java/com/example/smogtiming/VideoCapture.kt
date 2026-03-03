@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -57,74 +58,23 @@ fun VideoCapture(
     
     // Calibration state
     var isCalibrationMode by remember { mutableStateOf(false) }
-    var calibrationBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+
+    // Analysis result state for circle indicator
+    var analysisResult by remember { mutableStateOf(false) }
+    // Debug values for centerMva, reference, and center pixel RGB (displayed below the line)
+    var debugCenterMva by remember { mutableStateOf(0.0) }
+    var debugCenterR by remember { mutableStateOf(0.toDouble()) }
+    var debugCenterG by remember { mutableStateOf(0.toDouble()) }
+    var debugCenterB by remember { mutableStateOf(0.toDouble()) }
+    var colorRange by remember { mutableStateOf(ColorRange()) }
+    var isCollectingColorRange by remember { mutableStateOf(false) }
     
     DisposableEffect(Unit) {
         onDispose {
             cameraExecutor.shutdown()
-            calibrationBitmap?.recycle()
         }
     }
-    
-    // Calibration function
-    fun performCalibration() {
-        val bitmap = calibrationBitmap ?: return
-        
-        try {
-            val width = bitmap.width
-            val height = bitmap.height
-            val centerX = width / 2
-            val centerY = height / 2
-            
-            // Sample pixels in a 21x21 area (center +/- 10 pixels)
-            val pixels = mutableListOf<Int>()
-            for (y in (centerY - 10).coerceAtLeast(0)..(centerY + 10).coerceAtMost(height - 1)) {
-                for (x in (centerX - 10).coerceAtLeast(0)..(centerX + 10).coerceAtMost(width - 1)) {
-                    val pixel = bitmap.getPixel(x, y)
-                    pixels.add(pixel)
-                }
-            }
-            
-            // Calculate min/max RGB values
-            var minR = 255
-            var maxR = 0
-            var minG = 255
-            var maxG = 0
-            var minB = 255
-            var maxB = 0
-            
-            for (pixel in pixels) {
-                val r = (pixel shr 16) and 0xFF
-                val g = (pixel shr 8) and 0xFF
-                val b = pixel and 0xFF
-                
-                minR = minOf(minR, r)
-                maxR = maxOf(maxR, r)
-                minG = minOf(minG, g)
-                maxG = maxOf(maxG, g)
-                minB = minOf(minB, b)
-                maxB = maxOf(maxB, b)
-            }
-            
-            // Add some tolerance to the range
-            val tolerance = 20
-            frameAnalyzer.updateColorRange(
-                minR = (minR - tolerance).coerceAtLeast(0),
-                maxR = (maxR + tolerance).coerceAtMost(255),
-                minG = (minG - tolerance).coerceAtLeast(0),
-                maxG = (maxG + tolerance).coerceAtMost(255),
-                minB = (minB - tolerance).coerceAtLeast(0),
-                maxB = (maxB + tolerance).coerceAtMost(255)
-            )
-            
-            calibrationBitmap?.recycle()
-            calibrationBitmap = null
-            isCalibrationMode = false
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-    
+
     Box(modifier = modifier.fillMaxSize()) {
         if (hasCameraPermission) {
             AndroidView(
@@ -148,20 +98,18 @@ fun VideoCapture(
                             .build()
                             .also {
                                 it.setAnalyzer(cameraExecutor) { image ->
-                                    // Capture bitmap for calibration if in calibration mode
-                                    if (isCalibrationMode && calibrationBitmap == null && image.format == ImageFormat.YUV_420_888) {
-                                        try {
-                                            calibrationBitmap = frameAnalyzer.imageProxyToBitmap(image)
-                                        } catch (e: Exception) {
-                                            e.printStackTrace()
-                                        }
+                                    val result = frameAnalyzer.analyzeFrame(image)
+                                    analysisResult = result
+                                    debugCenterR = frameAnalyzer.rRingBuffer.average()
+                                    debugCenterG = frameAnalyzer.gRingBuffer.average()
+                                    debugCenterB = frameAnalyzer.bRingBuffer.average()
+                                    if (isCollectingColorRange) {
+                                        colorRange.r.set(debugCenterR.toFloat())
+                                        colorRange.g.set(debugCenterG.toFloat())
+                                        colorRange.b.set(debugCenterB.toFloat())
                                     }
-                                    
-                                    if (!isCalibrationMode) {
-                                        val result = frameAnalyzer.analyzeFrame(image)
-                                        onFrameAnalyzed(result)
-                                    }
-                                    
+                                    onFrameAnalyzed(result)
+
                                     image.close()
                                 }
                             }
@@ -192,39 +140,49 @@ fun VideoCapture(
             
             // Draw scanning line or cross overlay
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val middleX = size.width / 2
                 val middleY = size.height / 2
+                var middleX = size.width / 2
                 val lineWidth = 3.dp.toPx()
-                val crossLength = 50.dp.toPx()
-                
-                if (isCalibrationMode) {
-                    // Draw cross in the middle
-                    // Horizontal line
-                    drawLine(
-                        color = Color.Red,
-                        start = Offset(middleX - crossLength / 2, middleY),
-                        end = Offset(middleX + crossLength / 2, middleY),
-                        strokeWidth = lineWidth,
-                        cap = StrokeCap.Round
-                    )
-                    // Vertical line
-                    drawLine(
-                        color = Color.Red,
-                        start = Offset(middleX, middleY - crossLength / 2),
-                        end = Offset(middleX, middleY + crossLength / 2),
-                        strokeWidth = lineWidth,
-                        cap = StrokeCap.Round
-                    )
-                } else {
-                    // Draw horizontal line across the middle
-                    drawLine(
-                        color = Color.Red,
-                        start = Offset(0f, middleY),
-                        end = Offset(size.width, middleY),
-                        strokeWidth = lineWidth,
-                        cap = StrokeCap.Round
-                    )
+                val circleRadius = 15.dp.toPx()
+                val circlePadding = 16.dp.toPx()
+
+                // Draw horizontal line across the middle
+                drawLine(
+                    color = Color.Red,
+                    start = Offset(0f, middleY),
+                    end = Offset(size.width, middleY),
+                    strokeWidth = lineWidth,
+                    cap = StrokeCap.Round
+                )
+                drawLine(color = Color.Red,
+                    start = Offset(middleX, middleY - 20),
+                    end = Offset(middleX, middleY + 20),
+                    strokeWidth = lineWidth,
+                    cap = StrokeCap.Round)
+                // Debug: centerMva and reference below the line
+                val textPaint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.WHITE
+                    textSize = 14 * density
+                    setAntiAlias(true)
                 }
+                val textX = 16f
+                val textY = middleY + 24
+                drawContext.canvas.nativeCanvas.apply {
+                    drawText("ref: r%.1f..%.1f, g%.1f..%.1f, b%.1f..%.1f".format(
+                        colorRange.r.min, colorRange.r.max,
+                        colorRange.g.min, colorRange.g.max,
+                        colorRange.b.min, colorRange.b.max), textX, textY + 24, textPaint)
+                    drawText("rgb: (%.1f, %.1f, %.1f)".format(debugCenterR, debugCenterG, debugCenterB), textX, textY + 60, textPaint)
+                }
+                // Draw circle in top right corner
+                val circleX = size.width - circlePadding - circleRadius
+                val circleY = circlePadding + circleRadius
+                val circleColor = if (analysisResult) Color.Green else Color.Red
+                drawCircle(
+                    color = circleColor,
+                    radius = circleRadius,
+                    center = Offset(circleX, circleY)
+                )
             }
             
             // Calibration button in bottom left corner
@@ -236,14 +194,17 @@ fun VideoCapture(
             ) {
                 Button(
                     onClick = {
-                        if (isCalibrationMode) {
-                            performCalibration()
+                        if (isCollectingColorRange) {
+                            colorRange.addTolerance(3.toFloat())
+                            frameAnalyzer.setRefColor(colorRange)
+                            isCollectingColorRange = false
                         } else {
-                            isCalibrationMode = true
+                            colorRange = ColorRange()
+                            isCollectingColorRange = true
                         }
                     }
                 ) {
-                    Text(if (isCalibrationMode) "Применить" else "Калибровать")
+                    Text(if (isCollectingColorRange) "Стоп" else "Калибровать")
                 }
             }
         } else {
