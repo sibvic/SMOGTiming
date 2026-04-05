@@ -6,6 +6,11 @@ package com.example.smogtiming
  */
 class SmogCycleTimer {
 
+    sealed class DisplayState {
+        data class Running(val elapsedMs: Long) : DisplayState()
+        data class Stopped(val lastElapsedMs: Long?) : DisplayState()
+    }
+
     sealed class Event {
         data object None : Event()
         data class Completed(val elapsedMs: Long) : Event()
@@ -22,6 +27,16 @@ class SmogCycleTimer {
     private var lastCompletedAtMs = 0L
     /** Start time of the cycle that just completed; restored if a new first-false is too soon after complete. */
     private var lastCompletedCycleStartMs = 0L
+    private var lastCompletedElapsedMs: Long? = null
+
+    fun displayState(nowMs: Long = System.currentTimeMillis()): DisplayState {
+        val start = timerStartTimeMs
+        return if (start > 0L) {
+            DisplayState.Running(nowMs - start)
+        } else {
+            DisplayState.Stopped(lastCompletedElapsedMs)
+        }
+    }
 
     fun onFrameAnalyzed(isConeVisible: Boolean): Event {
         val previous = previousState
@@ -40,6 +55,7 @@ class SmogCycleTimer {
                 }
                 falseTransitionCount == 2 && timerStartTimeMs > 0L -> {
                     val elapsedMs = now - timerStartTimeMs
+                    lastCompletedElapsedMs = elapsedMs
                     lastCompletedCycleStartMs = timerStartTimeMs
                     lastCompletedAtMs = now
                     timerStartTimeMs = 0L
