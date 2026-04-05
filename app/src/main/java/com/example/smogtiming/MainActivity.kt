@@ -17,6 +17,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -61,9 +62,12 @@ class MainActivity : ComponentActivity() {
 private fun formatElapsedSeconds(ms: Long): String =
     String.format("%.3f s", ms / 1000.0)
 
+private const val RecentTimesMax = 5
+
 @Composable
 fun VideoCaptureScreen(modifier: Modifier = Modifier) {
     val cycleTimer = remember { SmogCycleTimer() }
+    val recentTimesMs = remember { mutableStateListOf<Long>() }
     var showResultDialog by remember { mutableStateOf(false) }
     var elapsedTimeMs by remember { mutableStateOf(0L) }
     var timerDisplay by remember {
@@ -76,6 +80,10 @@ fun VideoCaptureScreen(modifier: Modifier = Modifier) {
                 when (val event = cycleTimer.onFrameAnalyzed(result)) {
                     is SmogCycleTimer.Event.Completed -> {
                         elapsedTimeMs = event.elapsedMs
+                        recentTimesMs.add(event.elapsedMs)
+                        while (recentTimesMs.size > RecentTimesMax) {
+                            recentTimesMs.removeAt(0)
+                        }
                         showResultDialog = true
                     }
                     SmogCycleTimer.Event.None -> Unit
@@ -111,6 +119,33 @@ fun VideoCaptureScreen(modifier: Modifier = Modifier) {
                 )
             )
         )
+
+        val overlayTextStyle = TextStyle(
+            shadow = Shadow(
+                color = Color.Black,
+                offset = Offset(1f, 1f),
+                blurRadius = 4f
+            )
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 12.dp, bottom = 12.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            if (recentTimesMs.isNotEmpty()) {
+                recentTimesMs.reversed().forEach { ms ->
+                    Text(
+                        text = formatElapsedSeconds(ms),
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.End,
+                        style = overlayTextStyle
+                    )
+                }
+            }
+        }
     }
     
     // Show result dialog

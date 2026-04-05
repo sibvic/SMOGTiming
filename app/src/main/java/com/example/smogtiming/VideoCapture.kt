@@ -175,7 +175,6 @@ fun VideoCapture(
                         colorRange.r.min, colorRange.r.max,
                         colorRange.g.min, colorRange.g.max,
                         colorRange.b.min, colorRange.b.max), textX, textY + 24, textPaint)
-                    drawText("rgb: (%.1f, %.1f, %.1f)".format(debugCenterR, debugCenterG, debugCenterB), textX, textY + 60, textPaint)
                 }
                 // Draw circle in top right corner
                 val circleX = size.width - circlePadding - circleRadius
