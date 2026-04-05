@@ -28,11 +28,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Composable function that captures video and analyzes each frame.
  * 
- * @param onFrameAnalyzed Callback that receives the analysis result for each frame
+ * @param onFrameAnalyzed Callback for each analyzed frame (not invoked while calibration capture is active)
  * @param modifier Modifier for the composable
  */
 @Composable
@@ -56,8 +57,8 @@ fun VideoCapture(
     val frameAnalyzer = remember { FrameAnalyzer() }
     val cameraExecutor: ExecutorService = remember { Executors.newSingleThreadExecutor() }
     
-    // Calibration state
-    var isCalibrationMode by remember { mutableStateOf(false) }
+    // Calibration state (mirror for analyzer thread)
+    val calibrationActive = remember { AtomicBoolean(false) }
 
     // Analysis result state for circle indicator
     var analysisResult by remember { mutableStateOf(false) }
@@ -108,7 +109,9 @@ fun VideoCapture(
                                         colorRange.g.set(debugCenterG.toFloat())
                                         colorRange.b.set(debugCenterB.toFloat())
                                     }
-                                    onFrameAnalyzed(result)
+                                    if (!calibrationActive.get()) {
+                                        onFrameAnalyzed(result)
+                                    }
 
                                     image.close()
                                 }
@@ -198,9 +201,11 @@ fun VideoCapture(
                             colorRange.addTolerance(3.toFloat())
                             frameAnalyzer.setRefColor(colorRange)
                             isCollectingColorRange = false
+                            calibrationActive.set(false)
                         } else {
                             colorRange = ColorRange()
                             isCollectingColorRange = true
+                            calibrationActive.set(true)
                         }
                     }
                 ) {

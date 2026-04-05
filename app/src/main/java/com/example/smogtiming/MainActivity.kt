@@ -16,7 +16,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,40 +52,19 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun VideoCaptureScreen(modifier: Modifier = Modifier) {
-    var previousState by remember { mutableStateOf<Boolean?>(null) }
-    var timerStartTime by remember { mutableLongStateOf(0L) }
+    val cycleTimer = remember { SmogCycleTimer() }
     var showResultDialog by remember { mutableStateOf(false) }
-    var elapsedTimeMs by remember { mutableLongStateOf(0L) }
-    var falseTransitionCount by remember { mutableStateOf(0) }
-    
+    var elapsedTimeMs by remember { mutableStateOf(0L) }
+
     VideoCapture(
         onFrameAnalyzed = { result ->
-            // Detect state change to false
-            val previous = previousState
-            
-            // Only count transitions from true to false
-            if (previous == true && result == false) {
-                falseTransitionCount++
-                
-                // First transition to false: start timer
-                if (falseTransitionCount == 1 && timerStartTime == 0L) {
-                    timerStartTime = System.currentTimeMillis()
-                }
-                // Second transition to false: stop timer
-                else if (falseTransitionCount == 2 && timerStartTime > 0L) {
-                    val endTime = System.currentTimeMillis()
-                    elapsedTimeMs = endTime - timerStartTime
-                    timerStartTime = 0L // Reset for next cycle
-                    falseTransitionCount = 0
+            when (val event = cycleTimer.onFrameAnalyzed(result)) {
+                is SmogCycleTimer.Event.Completed -> {
+                    elapsedTimeMs = event.elapsedMs
                     showResultDialog = true
                 }
+                SmogCycleTimer.Event.None -> Unit
             }
-            // Reset counter when state goes back to true (allows new cycle)
-            else if (previous == false && result == true && falseTransitionCount == 1) {
-                // Timer is running, keep it running
-            }
-            
-            previousState = result
         },
         modifier = modifier
     )
